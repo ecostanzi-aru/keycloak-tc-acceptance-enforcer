@@ -61,7 +61,7 @@ Read the publication status:
 ```bash
 curl --silent --show-error --fail \
   --header "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/admin/realms/acme/terms-and-conditions
+  http://localhost:8080/admin/realms/master/terms-and-conditions
 ```
 
 Publish a new version:
@@ -70,7 +70,7 @@ Publish a new version:
 curl --silent --show-error --fail \
   --request POST \
   --header "Authorization: Bearer $TOKEN" \
-  http://localhost:8080/admin/realms/acme/terms-and-conditions/publish
+  http://localhost:8080/admin/realms/master/terms-and-conditions/publish
 ```
 
 The first publication returns version `1`. Subsequent calls increment it. The caller needs the realm's `view-realm` permission for `GET` and `manage-realm` for `POST`.
