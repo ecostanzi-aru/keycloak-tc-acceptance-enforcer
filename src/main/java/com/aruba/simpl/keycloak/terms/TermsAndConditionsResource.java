@@ -1,6 +1,7 @@
 package com.aruba.simpl.keycloak.terms;
 
 import jakarta.ws.rs.GET;
+import jakarta.enterprise.inject.Vetoed;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -12,6 +13,7 @@ import org.keycloak.events.admin.ResourceType;
 import org.keycloak.services.resources.admin.AdminEventBuilder;
 import org.keycloak.services.resources.admin.fgap.AdminPermissionEvaluator;
 
+@Vetoed
 /** Root JAX-RS resource for the terms-and-conditions admin extension. */
 @Path("/")
 public final class TermsAndConditionsResource {
