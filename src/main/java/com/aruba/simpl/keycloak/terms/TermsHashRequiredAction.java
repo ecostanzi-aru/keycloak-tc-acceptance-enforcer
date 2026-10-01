@@ -12,14 +12,23 @@ public final class TermsHashRequiredAction implements RequiredActionProvider {
 
     @Override
     public void evaluateTriggers(RequiredActionContext context) {
+        LOG.debugf("Evaluating Terms hash trigger for user '%s' in realm '%s'",
+                context.getUser().getId(), context.getRealm().getName());
         String currentHash = context.getRealm().getAttribute(TermsHashAttributes.CURRENT_HASH);
-        if (currentHash == null || currentHash.isBlank()) {
+        if (currentHash == null) {
             LOG.debugf("Terms hash trigger skipped for realm '%s': %s is not configured",
                     context.getRealm().getName(), TermsHashAttributes.CURRENT_HASH);
             return;
         }
+        if (currentHash.isBlank()) {
+            LOG.debugf("Terms hash trigger skipped for realm '%s': %s is blank",
+                    context.getRealm().getName(), TermsHashAttributes.CURRENT_HASH);
+            return;
+        }
 
+        
         String acceptedHash = context.getUser().getFirstAttribute(TermsHashAttributes.ACCEPTED_HASH);
+        LOG.debugf("Accepted hash is %s, current hash is %s", currentHash, acceptedHash);
         if (!currentHash.equals(acceptedHash)) {
             LOG.debugf("Terms hash mismatch for user '%s' in realm '%s' (accepted='%s', current='%s'); adding %s",
                     context.getUser().getId(), context.getRealm().getName(),
@@ -40,6 +49,7 @@ public final class TermsHashRequiredAction implements RequiredActionProvider {
         LOG.warnf("Terms hash trigger was invoked as a required-action challenge for user '%s'; completing it",
                 context.getUser().getId());
         context.success();
+        LOG.debugf("Completed unexpected Terms hash challenge for user '%s'", context.getUser().getId());
     }
 
     @Override
@@ -48,11 +58,12 @@ public final class TermsHashRequiredAction implements RequiredActionProvider {
         LOG.warnf("Terms hash trigger was invoked to process a required-action form for user '%s'; completing it",
                 context.getUser().getId());
         context.success();
+        LOG.debugf("Completed unexpected Terms hash form processing for user '%s'", context.getUser().getId());
     }
 
     @Override
     public void close() {
         // No resources are held by this stateless provider.
-        LOG.trace("Closing Terms hash required-action provider");
+        LOG.debug("Closing Terms hash required-action provider");
     }
 }

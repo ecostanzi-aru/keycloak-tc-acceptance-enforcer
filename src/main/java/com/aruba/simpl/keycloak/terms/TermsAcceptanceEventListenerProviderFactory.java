@@ -16,30 +16,31 @@ public final class TermsAcceptanceEventListenerProviderFactory implements EventL
 
     @Override
     public EventListenerProvider create(KeycloakSession session) {
-        LOG.debugf("Creating Terms acceptance event listener provider '%s'", ID);
+        LOG.tracef("Creating Terms acceptance event listener provider '%s'", ID);
         return new TermsAcceptanceEventListenerProvider(session);
     }
 
     @Override
     public void init(Config.Scope config) {
         // No provider configuration is required.
-        LOG.debugf("Initializing Terms acceptance event listener provider '%s'", ID);
+        LOG.tracef("Initializing Terms acceptance event listener provider '%s'", ID);
     }
 
     @Override
     public void postInit(KeycloakSessionFactory factory) {
         // No post-initialization is required.
-        LOG.debugf("Post-initialized Terms acceptance event listener provider '%s'", ID);
+        LOG.tracef("Post-initialized Terms acceptance event listener provider '%s'", ID);
     }
 
     @Override
     public void close() {
         // No resources are held by the factory.
-        LOG.debugf("Closing Terms acceptance event listener provider factory '%s'", ID);
+        LOG.tracef("Closing Terms acceptance event listener provider factory '%s'", ID);
     }
 
     @Override
     public String getId() {
+        LOG.tracef("Returning Terms acceptance event listener provider ID '%s'", ID);
         return ID;
     }
 }

@@ -22,11 +22,13 @@ public final class TermsHashRequiredActionFactory implements RequiredActionFacto
 
     @Override
     public String getDisplayText() {
+        LOG.trace("Returning Terms hash required-action display text");
         return "Terms hash trigger";
     }
 
     @Override
     public boolean isConfigurable() {
+        LOG.trace("Terms hash required-action provider is not configurable");
         return false;
     }
 
@@ -50,6 +52,7 @@ public final class TermsHashRequiredActionFactory implements RequiredActionFacto
 
     @Override
     public String getId() {
+        LOG.tracef("Returning Terms hash required-action provider ID '%s'", ID);
         return ID;
     }
 }

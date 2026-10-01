@@ -19,18 +19,28 @@ public final class TermsAcceptanceEventListenerProvider implements EventListener
 
     TermsAcceptanceEventListenerProvider(KeycloakSession session) {
         this.session = session;
+        LOG.debug("Constructed Terms acceptance event listener");
     }
 
     @Override
     public void onEvent(Event event) {
-        if (event == null || event.getType() != EventType.CUSTOM_REQUIRED_ACTION) {
+        if (event == null) {
+            LOG.debug("Ignoring null user event");
             return;
         }
-        if (event.getDetails() == null || !UserModel.RequiredAction.TERMS_AND_CONDITIONS.name()
-                .equals(event.getDetails().get(Details.CUSTOM_REQUIRED_ACTION))) {
-            LOG.tracef("Ignoring successful custom required-action event for action '%s' in realm '%s'",
-                    event.getDetails() == null ? null : event.getDetails().get(Details.CUSTOM_REQUIRED_ACTION),
-                    event.getRealmId());
+        if (event.getType() != EventType.CUSTOM_REQUIRED_ACTION) {
+            LOG.debugf("Ignoring user event of type '%s' in realm '%s'", event.getType(), event.getRealmId());
+            return;
+        }
+        if (event.getDetails() == null) {
+            LOG.debugf("Ignoring custom required-action event without details in realm '%s'", event.getRealmId());
+            return;
+        }
+
+        String action = event.getDetails().get(Details.CUSTOM_REQUIRED_ACTION);
+        if (!UserModel.RequiredAction.TERMS_AND_CONDITIONS.name().equals(action)) {
+            LOG.debugf("Ignoring successful custom required-action event for action '%s' in realm '%s'",
+                    action, event.getRealmId());
             return;
         }
 
@@ -44,8 +54,13 @@ public final class TermsAcceptanceEventListenerProvider implements EventListener
         }
 
         String currentHash = realm.getAttribute(TermsHashAttributes.CURRENT_HASH);
-        if (currentHash == null || currentHash.isBlank()) {
+        if (currentHash == null) {
             LOG.warnf("Cannot record Terms acceptance for realm '%s': %s is not configured",
+                    realm.getName(), TermsHashAttributes.CURRENT_HASH);
+            return;
+        }
+        if (currentHash.isBlank()) {
+            LOG.warnf("Cannot record Terms acceptance for realm '%s': %s is blank",
                     realm.getName(), TermsHashAttributes.CURRENT_HASH);
             return;
         }
@@ -65,12 +80,12 @@ public final class TermsAcceptanceEventListenerProvider implements EventListener
     @Override
     public void onEvent(AdminEvent event, boolean includeRepresentation) {
         // This listener reacts only to user events.
-        LOG.trace("Ignoring admin event");
+        LOG.debug("Ignoring admin event");
     }
 
     @Override
     public void close() {
         // The Keycloak session owns all resources.
-        LOG.trace("Closing Terms acceptance event listener");
+        LOG.debug("Closing Terms acceptance event listener");
     }
 }
