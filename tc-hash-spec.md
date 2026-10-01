@@ -4,13 +4,9 @@
 
 Keycloak **26.4.7**.
 
-Continue using Keycloak's built-in `TERMS_AND_CONDITIONS` required action and existing `termsText` localization mechanism.
+Continue using Keycloak's built-in `TERMS_AND_CONDITIONS` required action and existing `termsText` realm-localization mechanism. Calculate the current hash on demand from all localized `termsText` overrides; do not persist a derived `terms.currentHash` realm attribute.
 
-Assume the current Terms hash is already maintained as a realm attribute:
-
-```text
-terms.currentHash = <SHA-256>
-```
+The calculation sorts the values by locale and uses an unambiguous, length-prefixed UTF-8 representation before applying SHA-256. Changing any localized Terms value therefore changes the global current hash, while localization map iteration order and unrelated message keys do not.
 
 The implementation must add two Keycloak SPIs.
 
@@ -24,10 +20,10 @@ When the built-in `TERMS_AND_CONDITIONS` required action completes successfully:
 
 1. Detect the successful `CUSTOM_REQUIRED_ACTION` event.
 2. Verify that `Details.CUSTOM_REQUIRED_ACTION` identifies `TERMS_AND_CONDITIONS`.
-3. Load the current realm attribute:
+3. Calculate the current hash from the realm's localized `termsText` overrides.
 
 ```text
-terms.currentHash
+currentHash = SHA-256(all localized termsText values, sorted by locale)
 ```
 
 4. Store that value on the user as:
@@ -39,9 +35,6 @@ terms.acceptedHash
 Result:
 
 ```text
-Realm:
-  terms.currentHash = abc123
-
 User:
   terms.acceptedHash = abc123
 ```
@@ -56,9 +49,7 @@ terms_and_conditions = <acceptance timestamp>
 
 attribute.
 
-The custom listener only adds `terms.acceptedHash`.
-
-If `terms.currentHash` is missing, do not write an empty `terms.acceptedHash`; log a warning instead.
+The custom listener only adds `terms.acceptedHash`. If no localized `termsText` override exists, do not write an empty `terms.acceptedHash`; log a warning instead.
 
 ---
 
@@ -71,7 +62,7 @@ Its purpose is only to implement `evaluateTriggers()`.
 On every authentication:
 
 ```text
-currentHash  = realm["terms.currentHash"]
+currentHash  = SHA-256(realm localized termsText values)
 acceptedHash = user["terms.acceptedHash"]
 ```
 
@@ -99,16 +90,13 @@ terms.acceptedHash == null
 
 so users who have never accepted the current Terms must accept them.
 
-If `terms.currentHash` is not configured, do nothing and log/debug appropriately. Do not block authentication because the Terms hash infrastructure has not yet been initialized.
+If no localized `termsText` override is configured, do nothing and log/debug appropriately. Do not block authentication because the Terms content has not yet been configured.
 
 The custom required action does not render any UI and does not replace `TERMS_AND_CONDITIONS`; it only decides whether the built-in action needs to run.
 
 Expected flow:
 
 ```text
-Realm:
-  terms.currentHash = BBB
-
 User:
   terms.acceptedHash = AAA
 
@@ -117,7 +105,7 @@ User:
             v
 TermsHashRequiredAction.evaluateTriggers()
             |
-        AAA != BBB
+        AAA != hash(localized termsText)
             |
             v
 add TERMS_AND_CONDITIONS
@@ -129,7 +117,7 @@ Keycloak built-in Terms page
             |
             +--> Keycloak stores terms_and_conditions timestamp
             |
-            +--> EventListener stores terms.acceptedHash = BBB
+            +--> EventListener stores the live termsText hash
 ```
 
 ## Registration
@@ -158,7 +146,7 @@ acceptedHash != currentHash
 acceptedHash missing
 → TERMS_AND_CONDITIONS is added
 
-currentHash missing
+localized termsText missing
 → authentication is not blocked
 
 successful TERMS_AND_CONDITIONS
@@ -203,12 +191,12 @@ Do not simply use the user's permanent `locale` attribute without checking how K
 
 ### Preferred language-aware model
 
-If different translations can change independently, evolve the realm-side hash from one global hash into hashes per locale:
+If different translations can change independently, evolve the on-demand global hash into on-demand hashes per locale:
 
 ```text
-terms.hash.en = ...
-terms.hash.it = ...
-terms.hash.de = ...
+hash.en = SHA-256(termsText.en)
+hash.it = SHA-256(termsText.it)
+hash.de = SHA-256(termsText.de)
 ```
 
 Then at authentication determine the effective Terms language and compare:

@@ -4,6 +4,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,7 @@ class TermsHashProvidersTest {
 
     @Test
     void doesNotAddTermsActionWhenTheAcceptedHashMatches() {
-        RequiredActionContext context = triggerContext("current", "current");
+        RequiredActionContext context = triggerContext("current", hashForTerms("current"));
 
         new TermsHashRequiredAction().evaluateTriggers(context);
 
@@ -51,12 +52,48 @@ class TermsHashProvidersTest {
     }
 
     @Test
-    void doesNothingWhenTheCurrentHashIsMissing() {
+    void doesNothingWhenTermsTextIsMissing() {
         RequiredActionContext context = triggerContext(null, "previous");
 
         new TermsHashRequiredAction().evaluateTriggers(context);
 
         verify(context.getUser(), never()).addRequiredAction(UserModel.RequiredAction.TERMS_AND_CONDITIONS);
+    }
+
+    @Test
+    void recalculatesTheHashWhenTermsTextChanges() {
+        String originalHash = hashForTerms("original terms");
+        String updatedHash = hashForTerms("updated terms");
+
+        org.junit.jupiter.api.Assertions.assertNotEquals(originalHash, updatedHash);
+    }
+
+    @Test
+    void calculatesTheSameHashRegardlessOfLocalizationMapOrder() {
+        RealmModel firstRealm = mock(RealmModel.class);
+        RealmModel secondRealm = mock(RealmModel.class);
+        Map<String, Map<String, String>> first = new LinkedHashMap<>();
+        first.put("en", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "English terms"));
+        first.put("it", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "Termini italiani"));
+        Map<String, Map<String, String>> second = new LinkedHashMap<>();
+        second.put("it", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "Termini italiani"));
+        second.put("en", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "English terms"));
+        when(firstRealm.getRealmLocalizationTexts()).thenReturn(first);
+        when(secondRealm.getRealmLocalizationTexts()).thenReturn(second);
+
+        assertEquals(TermsHashAttributes.calculateCurrentHash(firstRealm),
+                TermsHashAttributes.calculateCurrentHash(secondRealm));
+    }
+
+    @Test
+    void ignoresUnrelatedLocalizationChanges() {
+        RealmModel firstRealm = realmWithLocalizations(Map.of("en", Map.of(
+                TermsHashAttributes.TERMS_TEXT_KEY, "Terms", "loginTitle", "First title")));
+        RealmModel secondRealm = realmWithLocalizations(Map.of("en", Map.of(
+                TermsHashAttributes.TERMS_TEXT_KEY, "Terms", "loginTitle", "Second title")));
+
+        assertEquals(TermsHashAttributes.calculateCurrentHash(firstRealm),
+                TermsHashAttributes.calculateCurrentHash(secondRealm));
     }
 
     @Test
@@ -69,18 +106,19 @@ class TermsHashProvidersTest {
         when(session.realms()).thenReturn(realms);
         when(session.users()).thenReturn(users);
         when(realms.getRealm("realm-id")).thenReturn(realm);
-        when(realm.getAttribute(TermsHashAttributes.CURRENT_HASH)).thenReturn("current");
+        when(realm.getRealmLocalizationTexts()).thenReturn(localizedTerms("current"));
         when(users.getUserById(realm, "user-id")).thenReturn(user);
 
         new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION, UserModel.RequiredAction.TERMS_AND_CONDITIONS.name()));
 
-        verify(user).setSingleAttribute(TermsHashAttributes.ACCEPTED_HASH, "current");
+        String expectedHash = TermsHashAttributes.calculateCurrentHash(realm);
+        verify(user).setSingleAttribute(TermsHashAttributes.ACCEPTED_HASH, expectedHash);
     }
 
     @Test
     void doesNotRecordHashForAnotherSuccessfulRequiredAction() {
-        KeycloakSession session = sessionWithCurrentHash("current");
+        KeycloakSession session = sessionWithTerms("current");
 
         new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION, UserModel.RequiredAction.UPDATE_PASSWORD.name()));
@@ -90,7 +128,7 @@ class TermsHashProvidersTest {
 
     @Test
     void doesNotRecordHashWhenTermsAcceptanceIsRejected() {
-        KeycloakSession session = sessionWithCurrentHash("current");
+        KeycloakSession session = sessionWithTerms("current");
 
         new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION_ERROR, UserModel.RequiredAction.TERMS_AND_CONDITIONS.name()));
@@ -99,8 +137,8 @@ class TermsHashProvidersTest {
     }
 
     @Test
-    void doesNotWriteAnEmptyAcceptedHashWhenCurrentHashIsMissing() {
-        KeycloakSession session = sessionWithCurrentHash(null);
+    void doesNotWriteAnAcceptedHashWhenTermsTextIsMissing() {
+        KeycloakSession session = sessionWithTerms(null);
 
         new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION, UserModel.RequiredAction.TERMS_AND_CONDITIONS.name()));
@@ -116,18 +154,18 @@ class TermsHashProvidersTest {
                 new TermsHashRequiredActionFactory().create(mock(KeycloakSession.class)));
     }
 
-    private RequiredActionContext triggerContext(String currentHash, String acceptedHash) {
+    private RequiredActionContext triggerContext(String termsText, String acceptedHash) {
         RequiredActionContext context = mock(RequiredActionContext.class);
         RealmModel realm = mock(RealmModel.class);
         UserModel user = mock(UserModel.class);
         when(context.getRealm()).thenReturn(realm);
         when(context.getUser()).thenReturn(user);
-        when(realm.getAttribute(TermsHashAttributes.CURRENT_HASH)).thenReturn(currentHash);
+        when(realm.getRealmLocalizationTexts()).thenReturn(localizedTerms(termsText));
         when(user.getFirstAttribute(TermsHashAttributes.ACCEPTED_HASH)).thenReturn(acceptedHash);
         return context;
     }
 
-    private KeycloakSession sessionWithCurrentHash(String currentHash) {
+    private KeycloakSession sessionWithTerms(String termsText) {
         KeycloakSession session = mock(KeycloakSession.class);
         RealmModel realm = mock(RealmModel.class);
         RealmProvider realms = mock(RealmProvider.class);
@@ -135,8 +173,25 @@ class TermsHashProvidersTest {
         when(session.realms()).thenReturn(realms);
         when(realms.getRealm("realm-id")).thenReturn(realm);
         when(session.users()).thenReturn(users);
-        when(realm.getAttribute(TermsHashAttributes.CURRENT_HASH)).thenReturn(currentHash);
+        when(realm.getRealmLocalizationTexts()).thenReturn(localizedTerms(termsText));
         return session;
+    }
+
+    private String hashForTerms(String termsText) {
+        return TermsHashAttributes.calculateCurrentHash(
+                realmWithLocalizations(localizedTerms(termsText)));
+    }
+
+    private RealmModel realmWithLocalizations(Map<String, Map<String, String>> localizations) {
+        RealmModel realm = mock(RealmModel.class);
+        when(realm.getRealmLocalizationTexts()).thenReturn(localizations);
+        return realm;
+    }
+
+    private Map<String, Map<String, String>> localizedTerms(String termsText) {
+        return termsText == null
+                ? Map.of()
+                : Map.of("en", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, termsText));
     }
 
     private Event requiredActionEvent(EventType type, String action) {

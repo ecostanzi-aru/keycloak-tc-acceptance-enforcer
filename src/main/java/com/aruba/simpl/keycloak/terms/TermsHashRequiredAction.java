@@ -14,15 +14,10 @@ public final class TermsHashRequiredAction implements RequiredActionProvider {
     public void evaluateTriggers(RequiredActionContext context) {
         LOG.debugf("Evaluating Terms hash trigger for user '%s' in realm '%s'",
                 context.getUser().getId(), context.getRealm().getName());
-        String currentHash = context.getRealm().getAttribute(TermsHashAttributes.CURRENT_HASH);
+        String currentHash = TermsHashAttributes.calculateCurrentHash(context.getRealm());
         if (currentHash == null) {
-            LOG.debugf("Terms hash trigger skipped for realm '%s': %s is not configured",
-                    context.getRealm().getName(), TermsHashAttributes.CURRENT_HASH);
-            return;
-        }
-        if (currentHash.isBlank()) {
-            LOG.debugf("Terms hash trigger skipped for realm '%s': %s is blank",
-                    context.getRealm().getName(), TermsHashAttributes.CURRENT_HASH);
+            LOG.debugf("Terms hash trigger skipped for realm '%s': no localized %s value is configured",
+                    context.getRealm().getName(), TermsHashAttributes.TERMS_TEXT_KEY);
             return;
         }
 

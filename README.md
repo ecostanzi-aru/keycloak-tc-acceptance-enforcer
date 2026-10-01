@@ -44,9 +44,11 @@ docker compose logs -f keycloak
 
 ## Enable Terms hash enforcement
 
-Set the realm attribute `terms.currentHash` to the SHA-256 hash of the currently published Terms text. In **Realm settings → Events → Event listeners**, add `terms-hash-acceptance`. In **Authentication → Required actions**, enable `Terms hash trigger` (provider ID `terms-hash-trigger`).
+Define at least one `termsText` realm localization override. In **Realm settings → Events → Event listeners**, add `terms-hash-acceptance`. In **Authentication → Required actions**, enable `Terms hash trigger` (provider ID `terms-hash-trigger`).
 
-At each login the trigger compares `terms.currentHash` with the user's `terms.acceptedHash` and adds Keycloak's built-in `TERMS_AND_CONDITIONS` action when they differ. Once the user accepts the built-in Terms page, the event listener records the current hash in `terms.acceptedHash`. The built-in `terms_and_conditions` timestamp remains managed by Keycloak.
+At each login the trigger calculates a deterministic SHA-256 hash from every localized `termsText` realm override, sorted by locale. It compares that live hash with the user's `terms.acceptedHash` and adds Keycloak's built-in `TERMS_AND_CONDITIONS` action when they differ. Consequently, changing any localized `termsText` value automatically requires a new acceptance; no `terms.currentHash` realm attribute or startup synchronization is needed.
+
+Once the user accepts the built-in Terms page, the event listener calculates the same live hash and records it in `terms.acceptedHash`. The built-in `terms_and_conditions` timestamp remains managed by Keycloak. If no localized `termsText` override exists, hash enforcement is skipped.
 
 ## Test the API
 

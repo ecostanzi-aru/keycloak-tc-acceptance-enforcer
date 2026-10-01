@@ -14,7 +14,7 @@ public final class TermsAndConditionsAdminRealmResourceProvider implements Admin
     @Override
     public Object getResource(KeycloakSession session, RealmModel realm,
                               AdminPermissionEvaluator auth, AdminEventBuilder adminEvent) {
-        LOG.tracef("Creating terms-and-conditions admin resource for realm '%s'", realm.getName());
+        LOG.debugf("Creating terms-and-conditions admin resource for realm '%s'", realm.getName());
         return new TermsAndConditionsResource(session, realm, auth, adminEvent, new TermsService());
     }
 

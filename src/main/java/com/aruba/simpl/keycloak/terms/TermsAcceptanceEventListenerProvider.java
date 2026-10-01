@@ -53,15 +53,10 @@ public final class TermsAcceptanceEventListenerProvider implements EventListener
             return;
         }
 
-        String currentHash = realm.getAttribute(TermsHashAttributes.CURRENT_HASH);
+        String currentHash = TermsHashAttributes.calculateCurrentHash(realm);
         if (currentHash == null) {
-            LOG.warnf("Cannot record Terms acceptance for realm '%s': %s is not configured",
-                    realm.getName(), TermsHashAttributes.CURRENT_HASH);
-            return;
-        }
-        if (currentHash.isBlank()) {
-            LOG.warnf("Cannot record Terms acceptance for realm '%s': %s is blank",
-                    realm.getName(), TermsHashAttributes.CURRENT_HASH);
+            LOG.warnf("Cannot record Terms acceptance for realm '%s': no localized %s value is configured",
+                    realm.getName(), TermsHashAttributes.TERMS_TEXT_KEY);
             return;
         }
 
