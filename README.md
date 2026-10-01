@@ -4,6 +4,9 @@ A Keycloak 26.4.7 server-side extension for publishing Terms & Conditions versio
 
 No custom Admin Console UI is included yet.
 
+> [!IMPORTANT]
+> This project currently contains two detached experiments: Terms version publication and Terms hash enforcement. The login hash flow calculates its state directly from localized `termsText` values and does not read `terms.version` or `terms.publishedAt`. Likewise, no login or registration flow uses the publication version metadata. The publication API currently only maintains experimental metadata and, when called, assigns Keycloak's built-in `TERMS_AND_CONDITIONS` required action to existing users. Do not treat the publication version as the Terms revision accepted by a user.
+
 ## Prerequisites
 
 - JDK 17
