@@ -42,6 +42,12 @@ Follow startup logs with:
 docker compose logs -f keycloak
 ```
 
+## Enable Terms hash enforcement
+
+Set the realm attribute `terms.currentHash` to the SHA-256 hash of the currently published Terms text. In **Realm settings → Events → Event listeners**, add `terms-hash-acceptance`. In **Authentication → Required actions**, enable `Terms hash trigger` (provider ID `terms-hash-trigger`).
+
+At each login the trigger compares `terms.currentHash` with the user's `terms.acceptedHash` and adds Keycloak's built-in `TERMS_AND_CONDITIONS` action when they differ. Once the user accepts the built-in Terms page, the event listener records the current hash in `terms.acceptedHash`. The built-in `terms_and_conditions` timestamp remains managed by Keycloak.
+
 ## Test the API
 
 Create a test realm in the Admin Console, for example `acme`. Obtain an admin access token (replace credentials if you changed them):
