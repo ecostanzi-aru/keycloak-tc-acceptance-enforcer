@@ -1,16 +1,20 @@
 package com.aruba.simpl.keycloak.terms;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Comparator;
 import java.util.HexFormat;
-import java.util.List;
-import java.util.Map;
+import java.util.Locale;
+import java.util.Properties;
 
 import org.jboss.logging.Logger;
+import org.keycloak.locale.LocaleSelectorProvider;
+import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
+import org.keycloak.models.UserModel;
+import org.keycloak.theme.Theme;
 
 /** Realm and user attributes used to track the accepted Terms revision. */
 final class TermsHashAttributes {
@@ -18,40 +22,51 @@ final class TermsHashAttributes {
     private static final Logger LOG = Logger.getLogger(TermsHashAttributes.class);
 
     static final String ACCEPTED_HASH = "terms.acceptedHash";
+    static final String ACCEPTED_LANGUAGE = "terms.acceptedLanguage";
     static final String TERMS_TEXT_KEY = "termsText";
 
-    private static final byte[] HASH_FORMAT = "termsText-v1".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] HASH_FORMAT = "termsText-v2".getBytes(StandardCharsets.UTF_8);
 
-    static String calculateCurrentHash(RealmModel realm) {
-        Map<String, Map<String, String>> localizations = realm.getRealmLocalizationTexts();
-        if (localizations == null || localizations.isEmpty()) {
-            LOG.debugf("No realm localization overrides exist in realm '%s'; no Terms hash is available",
-                    realm.getName());
+    static CurrentTerms resolveCurrentTerms(KeycloakSession session, RealmModel realm, UserModel user) {
+        LocaleSelectorProvider localeSelector = session.getProvider(LocaleSelectorProvider.class);
+        if (localeSelector == null) {
+            LOG.warnf("Cannot resolve Terms for realm '%s': no locale selector provider is available", realm.getName());
             return null;
         }
 
-        List<Map.Entry<String, String>> localizedTerms = localizations.entrySet().stream()
-                .filter(entry -> entry.getValue() != null)
-                .filter(entry -> entry.getValue().get(TERMS_TEXT_KEY) != null)
-                .map(entry -> Map.entry(entry.getKey(), entry.getValue().get(TERMS_TEXT_KEY)))
-                .sorted(Comparator.comparing(Map.Entry::getKey))
-                .toList();
-        if (localizedTerms.isEmpty()) {
-            LOG.debugf("No %s localization overrides exist in realm '%s'; no Terms hash is available",
-                    TERMS_TEXT_KEY, realm.getName());
+        Locale locale = localeSelector.resolveLocale(realm, user, Theme.Type.LOGIN);
+        if (locale == null) {
+            LOG.warnf("Cannot resolve Terms for user '%s' in realm '%s': no login locale is available",
+                    user.getId(), realm.getName());
             return null;
         }
 
+        String language = locale.toLanguageTag();
+        try {
+            Properties messages = session.theme().getTheme(Theme.Type.LOGIN).getEnhancedMessages(realm, locale);
+            String termsText = messages.getProperty(TERMS_TEXT_KEY);
+            if (termsText == null) {
+                LOG.warnf("Cannot resolve Terms for locale '%s' in realm '%s': message '%s' is missing",
+                        language, realm.getName(), TERMS_TEXT_KEY);
+                return null;
+            }
+
+            String hash = hashTermsText(termsText);
+            LOG.debugf("Resolved Terms hash '%s' for locale '%s', user '%s', realm '%s'",
+                    abbreviateHash(hash), language, user.getId(), realm.getName());
+            return new CurrentTerms(hash, language);
+        } catch (IOException exception) {
+            LOG.errorf(exception, "Cannot load login-theme messages for locale '%s' in realm '%s'",
+                    language, realm.getName());
+            return null;
+        }
+    }
+
+    static String hashTermsText(String termsText) {
         MessageDigest digest = sha256();
         digest.update(HASH_FORMAT);
-        localizedTerms.forEach(entry -> {
-            updateDigest(digest, entry.getKey());
-            updateDigest(digest, entry.getValue());
-        });
-        String hash = HexFormat.of().formatHex(digest.digest());
-        LOG.debugf("Calculated Terms hash '%s' from %d localized %s value(s) in realm '%s'",
-                abbreviateHash(hash), localizedTerms.size(), TERMS_TEXT_KEY, realm.getName());
-        return hash;
+        updateDigest(digest, termsText);
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     private static MessageDigest sha256() {
@@ -83,5 +98,8 @@ final class TermsHashAttributes {
 
     private TermsHashAttributes() {
         LOG.debug("Constructed Terms hash attributes utility");
+    }
+
+    record CurrentTerms(String hash, String language) {
     }
 }

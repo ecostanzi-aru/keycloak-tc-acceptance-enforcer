@@ -53,13 +53,6 @@ public final class TermsAcceptanceEventListenerProvider implements EventListener
             return;
         }
 
-        String currentHash = TermsHashAttributes.calculateCurrentHash(realm);
-        if (currentHash == null) {
-            LOG.warnf("Cannot record Terms acceptance for realm '%s': no localized %s value is configured",
-                    realm.getName(), TermsHashAttributes.TERMS_TEXT_KEY);
-            return;
-        }
-
         UserModel user = session.users().getUserById(realm, event.getUserId());
         if (user == null) {
             LOG.warnf("Cannot record Terms acceptance: user '%s' no longer exists in realm '%s'",
@@ -67,9 +60,18 @@ public final class TermsAcceptanceEventListenerProvider implements EventListener
             return;
         }
 
-        user.setSingleAttribute(TermsHashAttributes.ACCEPTED_HASH, currentHash);
-        LOG.debugf("Recorded accepted Terms hash '%s' for user '%s' in realm '%s'",
-                TermsHashAttributes.abbreviateHash(currentHash), user.getId(), realm.getName());
+        TermsHashAttributes.CurrentTerms currentTerms = TermsHashAttributes.resolveCurrentTerms(session, realm, user);
+        if (currentTerms == null) {
+            LOG.warnf("Cannot record Terms acceptance for user '%s' in realm '%s': current Terms could not be resolved",
+                    user.getId(), realm.getName());
+            return;
+        }
+
+        user.setSingleAttribute(TermsHashAttributes.ACCEPTED_HASH, currentTerms.hash());
+        user.setSingleAttribute(TermsHashAttributes.ACCEPTED_LANGUAGE, currentTerms.language());
+        LOG.infof("Recorded accepted Terms hash '%s' and language '%s' for user '%s' in realm '%s'",
+                TermsHashAttributes.abbreviateHash(currentTerms.hash()), currentTerms.language(),
+                user.getId(), realm.getName());
     }
 
     @Override

@@ -1,5 +1,7 @@
 package com.aruba.simpl.keycloak.terms;
 
+import java.util.Objects;
+
 import org.jboss.logging.Logger;
 import org.keycloak.authentication.RequiredActionContext;
 import org.keycloak.authentication.RequiredActionProvider;
@@ -14,28 +16,38 @@ public final class TermsHashRequiredAction implements RequiredActionProvider {
     public void evaluateTriggers(RequiredActionContext context) {
         LOG.debugf("Evaluating Terms hash trigger for user '%s' in realm '%s'",
                 context.getUser().getId(), context.getRealm().getName());
-        String currentHash = TermsHashAttributes.calculateCurrentHash(context.getRealm());
-        if (currentHash == null) {
-            LOG.debugf("Terms hash trigger skipped for realm '%s': no localized %s value is configured",
-                    context.getRealm().getName(), TermsHashAttributes.TERMS_TEXT_KEY);
+        TermsHashAttributes.CurrentTerms currentTerms = TermsHashAttributes.resolveCurrentTerms(
+                context.getSession(), context.getRealm(), context.getUser());
+        if (currentTerms == null) {
+            LOG.debugf("Terms hash trigger skipped for user '%s' in realm '%s': current Terms could not be resolved",
+                    context.getUser().getId(), context.getRealm().getName());
             return;
         }
 
-        
         String acceptedHash = context.getUser().getFirstAttribute(TermsHashAttributes.ACCEPTED_HASH);
-        LOG.debugf("Accepted hash is %s, current hash is %s", currentHash, acceptedHash);
-        if (!currentHash.equals(acceptedHash)) {
-            LOG.debugf("Terms hash mismatch for user '%s' in realm '%s' (accepted='%s', current='%s'); adding %s",
+        String acceptedLanguage = context.getUser().getFirstAttribute(TermsHashAttributes.ACCEPTED_LANGUAGE);
+        boolean hashChanged = !currentTerms.hash().equals(acceptedHash);
+        boolean languageChanged = !Objects.equals(currentTerms.language(), acceptedLanguage);
+        boolean requireAcceptanceOnLanguageChange =
+                TermsHashRequiredActionFactory.requireAcceptanceOnLanguageChange(context.getConfig());
+
+        LOG.debugf("Terms acceptance state for user '%s' in realm '%s': acceptedHash='%s', currentHash='%s', acceptedLanguage='%s', currentLanguage='%s', requireOnLanguageChange=%s",
+                context.getUser().getId(), context.getRealm().getName(),
+                TermsHashAttributes.abbreviateHash(acceptedHash),
+                TermsHashAttributes.abbreviateHash(currentTerms.hash()),
+                acceptedLanguage, currentTerms.language(), requireAcceptanceOnLanguageChange);
+        if (hashChanged || (requireAcceptanceOnLanguageChange && languageChanged)) {
+            LOG.debugf("Terms acceptance is outdated for user '%s' in realm '%s' (hashChanged=%s, languageChanged=%s); adding %s",
                     context.getUser().getId(), context.getRealm().getName(),
-                    TermsHashAttributes.abbreviateHash(acceptedHash), TermsHashAttributes.abbreviateHash(currentHash),
+                    hashChanged, languageChanged,
                     UserModel.RequiredAction.TERMS_AND_CONDITIONS);
             context.getUser().addRequiredAction(UserModel.RequiredAction.TERMS_AND_CONDITIONS);
             return;
         }
 
-        LOG.debugf("Terms hash is current for user '%s' in realm '%s' (hash='%s'); no action added",
+        LOG.debugf("Terms acceptance is current for user '%s' in realm '%s' (hash='%s', language='%s'); no action added",
                 context.getUser().getId(), context.getRealm().getName(),
-                TermsHashAttributes.abbreviateHash(currentHash));
+                TermsHashAttributes.abbreviateHash(currentTerms.hash()), currentTerms.language());
     }
 
     @Override

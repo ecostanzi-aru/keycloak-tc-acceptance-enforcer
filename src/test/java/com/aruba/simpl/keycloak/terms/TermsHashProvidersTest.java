@@ -1,32 +1,43 @@
 package com.aruba.simpl.keycloak.terms;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.util.LinkedHashMap;
+import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
 import org.keycloak.authentication.RequiredActionContext;
 import org.keycloak.events.Details;
 import org.keycloak.events.Event;
 import org.keycloak.events.EventType;
+import org.keycloak.locale.LocaleSelectorProvider;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.RealmProvider;
+import org.keycloak.models.RequiredActionConfigModel;
+import org.keycloak.models.ThemeManager;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.UserProvider;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.mockito.Mockito.mock;
+import org.keycloak.provider.ProviderConfigProperty;
+import org.keycloak.theme.Theme;
 
 class TermsHashProvidersTest {
 
     @Test
-    void doesNotAddTermsActionWhenTheAcceptedHashMatches() {
-        RequiredActionContext context = triggerContext("current", hashForTerms("current"));
+    void doesNotAddTermsActionWhenTheAcceptedHashAndLanguageMatch() {
+        RequiredActionContext context = triggerContext(
+                "current", "en", hashForTerms("current"), "en", null);
 
         new TermsHashRequiredAction().evaluateTriggers(context);
 
@@ -34,8 +45,9 @@ class TermsHashProvidersTest {
     }
 
     @Test
-    void addsTermsActionWhenTheAcceptedHashDiffers() {
-        RequiredActionContext context = triggerContext("current", "previous");
+    void addsTermsActionWhenTheLocalizedTermsContentDiffers() {
+        RequiredActionContext context = triggerContext(
+                "updated", "it", hashForTerms("previous"), "en", false);
 
         new TermsHashRequiredAction().evaluateTriggers(context);
 
@@ -44,7 +56,7 @@ class TermsHashProvidersTest {
 
     @Test
     void addsTermsActionWhenThereIsNoAcceptedHash() {
-        RequiredActionContext context = triggerContext("current", null);
+        RequiredActionContext context = triggerContext("current", "en", null, null, null);
 
         new TermsHashRequiredAction().evaluateTriggers(context);
 
@@ -52,8 +64,9 @@ class TermsHashProvidersTest {
     }
 
     @Test
-    void doesNothingWhenTermsTextIsMissing() {
-        RequiredActionContext context = triggerContext(null, "previous");
+    void languageChangeDoesNotRequireAcceptanceWhenConfigurationIsDisabled() {
+        RequiredActionContext context = triggerContext(
+                "same content", "it", hashForTerms("same content"), "en", false);
 
         new TermsHashRequiredAction().evaluateTriggers(context);
 
@@ -61,89 +74,95 @@ class TermsHashProvidersTest {
     }
 
     @Test
-    void recalculatesTheHashWhenTermsTextChanges() {
-        String originalHash = hashForTerms("original terms");
-        String updatedHash = hashForTerms("updated terms");
+    void languageChangeRequiresAcceptanceWhenConfiguredEvenIfContentMatches() {
+        RequiredActionContext context = triggerContext(
+                "same content", "it", hashForTerms("same content"), "en", true);
 
-        org.junit.jupiter.api.Assertions.assertNotEquals(originalHash, updatedHash);
+        new TermsHashRequiredAction().evaluateTriggers(context);
+
+        verify(context.getUser()).addRequiredAction(UserModel.RequiredAction.TERMS_AND_CONDITIONS);
     }
 
     @Test
-    void calculatesTheSameHashRegardlessOfLocalizationMapOrder() {
-        RealmModel firstRealm = mock(RealmModel.class);
-        RealmModel secondRealm = mock(RealmModel.class);
-        Map<String, Map<String, String>> first = new LinkedHashMap<>();
-        first.put("en", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "English terms"));
-        first.put("it", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "Termini italiani"));
-        Map<String, Map<String, String>> second = new LinkedHashMap<>();
-        second.put("it", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "Termini italiani"));
-        second.put("en", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, "English terms"));
-        when(firstRealm.getRealmLocalizationTexts()).thenReturn(first);
-        when(secondRealm.getRealmLocalizationTexts()).thenReturn(second);
+    void doesNothingWhenTermsTextCannotBeResolved() {
+        RequiredActionContext context = triggerContext(null, "en", "previous", "en", true);
 
-        assertEquals(TermsHashAttributes.calculateCurrentHash(firstRealm),
-                TermsHashAttributes.calculateCurrentHash(secondRealm));
+        new TermsHashRequiredAction().evaluateTriggers(context);
+
+        verify(context.getUser(), never()).addRequiredAction(UserModel.RequiredAction.TERMS_AND_CONDITIONS);
     }
 
     @Test
-    void ignoresUnrelatedLocalizationChanges() {
-        RealmModel firstRealm = realmWithLocalizations(Map.of("en", Map.of(
-                TermsHashAttributes.TERMS_TEXT_KEY, "Terms", "loginTitle", "First title")));
-        RealmModel secondRealm = realmWithLocalizations(Map.of("en", Map.of(
-                TermsHashAttributes.TERMS_TEXT_KEY, "Terms", "loginTitle", "Second title")));
-
-        assertEquals(TermsHashAttributes.calculateCurrentHash(firstRealm),
-                TermsHashAttributes.calculateCurrentHash(secondRealm));
+    void termsHashChangesWhenTheResolvedTextChanges() {
+        assertNotEquals(hashForTerms("original terms"), hashForTerms("updated terms"));
     }
 
     @Test
-    void recordsCurrentHashAfterSuccessfulTermsAcceptance() {
-        KeycloakSession session = mock(KeycloakSession.class);
-        RealmModel realm = mock(RealmModel.class);
-        UserModel user = mock(UserModel.class);
-        RealmProvider realms = mock(RealmProvider.class);
-        UserProvider users = mock(UserProvider.class);
-        when(session.realms()).thenReturn(realms);
-        when(session.users()).thenReturn(users);
-        when(realms.getRealm("realm-id")).thenReturn(realm);
-        when(realm.getRealmLocalizationTexts()).thenReturn(localizedTerms("current"));
-        when(users.getUserById(realm, "user-id")).thenReturn(user);
+    void termsHashIsIndependentOfLanguageWhenResolvedTextMatches() {
+        assertEquals(hashForTerms("same terms"), hashForTerms("same terms"));
+    }
 
-        new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
+    @Test
+    void recordsCurrentHashAndEffectiveLanguageAfterSuccessfulTermsAcceptance() {
+        ListenerFixture fixture = listenerFixture("current", "it");
+
+        new TermsAcceptanceEventListenerProvider(fixture.session()).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION, UserModel.RequiredAction.TERMS_AND_CONDITIONS.name()));
 
-        String expectedHash = TermsHashAttributes.calculateCurrentHash(realm);
-        verify(user).setSingleAttribute(TermsHashAttributes.ACCEPTED_HASH, expectedHash);
+        verify(fixture.user()).setSingleAttribute(
+                TermsHashAttributes.ACCEPTED_HASH, hashForTerms("current"));
+        verify(fixture.user()).setSingleAttribute(TermsHashAttributes.ACCEPTED_LANGUAGE, "it");
     }
 
     @Test
-    void doesNotRecordHashForAnotherSuccessfulRequiredAction() {
-        KeycloakSession session = sessionWithTerms("current");
+    void doesNotRecordAcceptanceForAnotherSuccessfulRequiredAction() {
+        ListenerFixture fixture = listenerFixture("current", "en");
 
-        new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
+        new TermsAcceptanceEventListenerProvider(fixture.session()).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION, UserModel.RequiredAction.UPDATE_PASSWORD.name()));
 
-        verify(session.users(), never()).getUserById(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.session().users(), never()).getUserById(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void doesNotRecordHashWhenTermsAcceptanceIsRejected() {
-        KeycloakSession session = sessionWithTerms("current");
+    void doesNotRecordAcceptanceWhenTermsAcceptanceIsRejected() {
+        ListenerFixture fixture = listenerFixture("current", "en");
 
-        new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
+        new TermsAcceptanceEventListenerProvider(fixture.session()).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION_ERROR, UserModel.RequiredAction.TERMS_AND_CONDITIONS.name()));
 
-        verify(session.users(), never()).getUserById(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.session().users(), never()).getUserById(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void doesNotWriteAnAcceptedHashWhenTermsTextIsMissing() {
-        KeycloakSession session = sessionWithTerms(null);
+    void doesNotWriteAcceptanceWhenTermsTextCannotBeResolved() {
+        ListenerFixture fixture = listenerFixture(null, "en");
 
-        new TermsAcceptanceEventListenerProvider(session).onEvent(requiredActionEvent(
+        new TermsAcceptanceEventListenerProvider(fixture.session()).onEvent(requiredActionEvent(
                 EventType.CUSTOM_REQUIRED_ACTION, UserModel.RequiredAction.TERMS_AND_CONDITIONS.name()));
 
-        verify(session.users(), never()).getUserById(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.user(), never()).setSingleAttribute(anyString(), anyString());
+    }
+
+    @Test
+    void requiredActionFactoryExposesLanguageChangeConfiguration() {
+        TermsHashRequiredActionFactory factory = new TermsHashRequiredActionFactory();
+
+        assertTrue(factory.isConfigurable());
+        ProviderConfigProperty property = factory.getConfigMetadata().stream()
+                .filter(candidate -> TermsHashRequiredActionFactory.REQUIRE_ACCEPTANCE_ON_LANGUAGE_CHANGE
+                        .equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(ProviderConfigProperty.BOOLEAN_TYPE, property.getType());
+        assertEquals(Boolean.FALSE, property.getDefaultValue());
+
+        RequiredActionConfigModel enabled = requiredActionConfig(true);
+        assertTrue(TermsHashRequiredActionFactory.requireAcceptanceOnLanguageChange(enabled));
+        assertFalse(TermsHashRequiredActionFactory.requireAcceptanceOnLanguageChange(requiredActionConfig(false)));
+        assertFalse(TermsHashRequiredActionFactory.requireAcceptanceOnLanguageChange(null));
     }
 
     @Test
@@ -154,44 +173,71 @@ class TermsHashProvidersTest {
                 new TermsHashRequiredActionFactory().create(mock(KeycloakSession.class)));
     }
 
-    private RequiredActionContext triggerContext(String termsText, String acceptedHash) {
+    private RequiredActionContext triggerContext(String termsText, String currentLanguage,
+                                                  String acceptedHash, String acceptedLanguage,
+                                                  Boolean requireAcceptanceOnLanguageChange) {
         RequiredActionContext context = mock(RequiredActionContext.class);
+        KeycloakSession session = mock(KeycloakSession.class);
         RealmModel realm = mock(RealmModel.class);
         UserModel user = mock(UserModel.class);
+        when(context.getSession()).thenReturn(session);
         when(context.getRealm()).thenReturn(realm);
         when(context.getUser()).thenReturn(user);
-        when(realm.getRealmLocalizationTexts()).thenReturn(localizedTerms(termsText));
         when(user.getFirstAttribute(TermsHashAttributes.ACCEPTED_HASH)).thenReturn(acceptedHash);
+        when(user.getFirstAttribute(TermsHashAttributes.ACCEPTED_LANGUAGE)).thenReturn(acceptedLanguage);
+        if (requireAcceptanceOnLanguageChange != null) {
+            when(context.getConfig()).thenReturn(requiredActionConfig(requireAcceptanceOnLanguageChange));
+        }
+        configureResolvedTerms(session, realm, user, currentLanguage, termsText);
         return context;
     }
 
-    private KeycloakSession sessionWithTerms(String termsText) {
+    private ListenerFixture listenerFixture(String termsText, String language) {
         KeycloakSession session = mock(KeycloakSession.class);
         RealmModel realm = mock(RealmModel.class);
+        UserModel user = mock(UserModel.class);
         RealmProvider realms = mock(RealmProvider.class);
         UserProvider users = mock(UserProvider.class);
         when(session.realms()).thenReturn(realms);
-        when(realms.getRealm("realm-id")).thenReturn(realm);
         when(session.users()).thenReturn(users);
-        when(realm.getRealmLocalizationTexts()).thenReturn(localizedTerms(termsText));
-        return session;
+        when(realms.getRealm("realm-id")).thenReturn(realm);
+        when(users.getUserById(realm, "user-id")).thenReturn(user);
+        configureResolvedTerms(session, realm, user, language, termsText);
+        return new ListenerFixture(session, user);
+    }
+
+    private void configureResolvedTerms(KeycloakSession session, RealmModel realm, UserModel user,
+                                        String language, String termsText) {
+        LocaleSelectorProvider localeSelector = mock(LocaleSelectorProvider.class);
+        ThemeManager themeManager = mock(ThemeManager.class);
+        Theme theme = mock(Theme.class);
+        Locale locale = Locale.forLanguageTag(language);
+        Properties messages = new Properties();
+        if (termsText != null) {
+            messages.setProperty(TermsHashAttributes.TERMS_TEXT_KEY, termsText);
+        }
+
+        when(session.getProvider(LocaleSelectorProvider.class)).thenReturn(localeSelector);
+        when(localeSelector.resolveLocale(realm, user, Theme.Type.LOGIN)).thenReturn(locale);
+        when(session.theme()).thenReturn(themeManager);
+        try {
+            when(themeManager.getTheme(Theme.Type.LOGIN)).thenReturn(theme);
+            when(theme.getEnhancedMessages(realm, locale)).thenReturn(messages);
+        } catch (IOException exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    private RequiredActionConfigModel requiredActionConfig(boolean requireAcceptanceOnLanguageChange) {
+        RequiredActionConfigModel config = new RequiredActionConfigModel();
+        config.setConfig(Map.of(
+                TermsHashRequiredActionFactory.REQUIRE_ACCEPTANCE_ON_LANGUAGE_CHANGE,
+                Boolean.toString(requireAcceptanceOnLanguageChange)));
+        return config;
     }
 
     private String hashForTerms(String termsText) {
-        return TermsHashAttributes.calculateCurrentHash(
-                realmWithLocalizations(localizedTerms(termsText)));
-    }
-
-    private RealmModel realmWithLocalizations(Map<String, Map<String, String>> localizations) {
-        RealmModel realm = mock(RealmModel.class);
-        when(realm.getRealmLocalizationTexts()).thenReturn(localizations);
-        return realm;
-    }
-
-    private Map<String, Map<String, String>> localizedTerms(String termsText) {
-        return termsText == null
-                ? Map.of()
-                : Map.of("en", Map.of(TermsHashAttributes.TERMS_TEXT_KEY, termsText));
+        return TermsHashAttributes.hashTermsText(termsText);
     }
 
     private Event requiredActionEvent(EventType type, String action) {
@@ -201,5 +247,8 @@ class TermsHashProvidersTest {
         event.setUserId("user-id");
         event.setDetails(Map.of(Details.CUSTOM_REQUIRED_ACTION, action));
         return event;
+    }
+
+    private record ListenerFixture(KeycloakSession session, UserModel user) {
     }
 }

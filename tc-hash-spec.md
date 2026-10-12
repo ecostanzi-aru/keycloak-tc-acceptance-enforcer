@@ -4,9 +4,9 @@
 
 Keycloak **26.4.7**.
 
-Continue using Keycloak's built-in `TERMS_AND_CONDITIONS` required action and existing `termsText` realm-localization mechanism. Calculate the current hash on demand from all localized `termsText` overrides; do not persist a derived `terms.currentHash` realm attribute.
+Continue using Keycloak's built-in `TERMS_AND_CONDITIONS` required action and existing `termsText` theme/localization mechanism. Resolve the effective login locale and calculate the current hash on demand from the `termsText` that Keycloak renders for that locale; do not persist a derived `terms.currentHash` realm attribute.
 
-The calculation sorts the values by locale and uses an unambiguous, length-prefixed UTF-8 representation before applying SHA-256. Changing any localized Terms value therefore changes the global current hash, while localization map iteration order and unrelated message keys do not.
+The calculation uses a length-prefixed UTF-8 representation before applying SHA-256. The language is stored separately and is not part of the content hash, so identical text has the same hash in different languages.
 
 The implementation must add two Keycloak SPIs.
 
@@ -20,23 +20,28 @@ When the built-in `TERMS_AND_CONDITIONS` required action completes successfully:
 
 1. Detect the successful `CUSTOM_REQUIRED_ACTION` event.
 2. Verify that `Details.CUSTOM_REQUIRED_ACTION` identifies `TERMS_AND_CONDITIONS`.
-3. Calculate the current hash from the realm's localized `termsText` overrides.
+3. Resolve the effective login locale using Keycloak's `LocaleSelectorProvider`.
+4. Resolve the effective `termsText` from the active login theme enhanced with realm localization overrides.
+5. Calculate the hash of that resolved text.
 
 ```text
-currentHash = SHA-256(all localized termsText values, sorted by locale)
+currentLanguage = effective login locale
+currentHash = SHA-256(effective termsText)
 ```
 
-4. Store that value on the user as:
+6. Store both values on the user as:
 
 ```text
 terms.acceptedHash
+terms.acceptedLanguage
 ```
 
 Result:
 
 ```text
 User:
-  terms.acceptedHash = abc123
+  terms.acceptedHash     = abc123
+  terms.acceptedLanguage = it
 ```
 
 Do not replace or modify Keycloak's built-in Terms and Conditions provider.
@@ -49,7 +54,7 @@ terms_and_conditions = <acceptance timestamp>
 
 attribute.
 
-The custom listener only adds `terms.acceptedHash`. If no localized `termsText` override exists, do not write an empty `terms.acceptedHash`; log a warning instead.
+The custom listener only adds `terms.acceptedHash` and `terms.acceptedLanguage`. If the effective `termsText` or locale cannot be resolved, do not write partial acceptance state; log a warning instead.
 
 ---
 
@@ -62,16 +67,18 @@ Its purpose is only to implement `evaluateTriggers()`.
 On every authentication:
 
 ```text
-currentHash  = SHA-256(realm localized termsText values)
+currentLanguage = effective login locale
+currentHash  = SHA-256(effective termsText for currentLanguage)
 acceptedHash = user["terms.acceptedHash"]
+acceptedLanguage = user["terms.acceptedLanguage"]
 ```
 
 If:
 
 ```text
-currentHash != null
-AND
 acceptedHash != currentHash
+OR
+(requireAcceptanceOnLanguageChange AND acceptedLanguage != currentLanguage)
 ```
 
 add the built-in required action:
@@ -90,7 +97,7 @@ terms.acceptedHash == null
 
 so users who have never accepted the current Terms must accept them.
 
-If no localized `termsText` override is configured, do nothing and log/debug appropriately. Do not block authentication because the Terms content has not yet been configured.
+If the effective locale or `termsText` cannot be resolved, do nothing and log/debug appropriately. Do not block authentication because the Terms content could not be loaded.
 
 The custom required action does not render any UI and does not replace `TERMS_AND_CONDITIONS`; it only decides whether the built-in action needs to run.
 
@@ -105,7 +112,7 @@ User:
             v
 TermsHashRequiredAction.evaluateTriggers()
             |
-        AAA != hash(localized termsText)
+        AAA != hash(effective localized termsText)
             |
             v
 add TERMS_AND_CONDITIONS
@@ -117,7 +124,7 @@ Keycloak built-in Terms page
             |
             +--> Keycloak stores terms_and_conditions timestamp
             |
-            +--> EventListener stores the live termsText hash
+            +--> EventListener stores the live termsText hash and language
 ```
 
 ## Registration
@@ -146,11 +153,11 @@ acceptedHash != currentHash
 acceptedHash missing
 → TERMS_AND_CONDITIONS is added
 
-localized termsText missing
+effective locale or termsText missing
 → authentication is not blocked
 
 successful TERMS_AND_CONDITIONS
-→ acceptedHash becomes currentHash
+→ acceptedHash and acceptedLanguage become current values
 
 other successful required actions
 → acceptedHash is not modified
@@ -161,7 +168,7 @@ rejected/cancelled TERMS_AND_CONDITIONS
 
 ---
 
-# Phase 2 — Language-aware Terms Acceptance
+# Phase 2 — Language-aware Terms Acceptance (implemented)
 
 After the basic hash mechanism works, extend it to record the language of the Terms accepted by the user.
 
@@ -222,7 +229,11 @@ terms.acceptedHash     = currentHash
 terms.acceptedLanguage = currentLanguage
 ```
 
-Whether changing language alone should require reacceptance should be configurable/business-defined.
+Whether changing language alone requires reacceptance is configured per realm on the `Terms hash trigger` required action with:
+
+```text
+requireAcceptanceOnLanguageChange = false | true
+```
 
 Default recommendation:
 
@@ -234,4 +245,4 @@ If the user changes language but both languages represent the same accepted revi
     do not automatically require acceptance solely because the locale changed
 ```
 
-Keep Phase 1 independent from this language-aware extension so it can be implemented and tested first.
+The default is `false`. Content changes always require acceptance; language-only changes require acceptance only when this setting is enabled.

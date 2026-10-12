@@ -47,11 +47,13 @@ docker compose logs -f keycloak
 
 ## Enable Terms hash enforcement
 
-Define at least one `termsText` realm localization override. In **Realm settings → Events → Event listeners**, add `terms-hash-acceptance`. In **Authentication → Required actions**, enable `Terms hash trigger` (provider ID `terms-hash-trigger`).
+Define the Terms content through a `termsText` realm localization override or the active login theme. In **Realm settings → Events → Event listeners**, add `terms-hash-acceptance`. In **Authentication → Required actions**, enable `Terms hash trigger` (provider ID `terms-hash-trigger`).
 
-At each login the trigger calculates a deterministic SHA-256 hash from every localized `termsText` realm override, sorted by locale. It compares that live hash with the user's `terms.acceptedHash` and adds Keycloak's built-in `TERMS_AND_CONDITIONS` action when they differ. Consequently, changing any localized `termsText` value automatically requires a new acceptance; no `terms.currentHash` realm attribute or startup synchronization is needed.
+At each login the trigger uses Keycloak's locale selector to resolve the effective login language and the exact `termsText` message produced by the active login theme plus realm localization overrides. It hashes that resolved text and compares it with the user's `terms.acceptedHash`. Different translated content therefore requires a new acceptance without a `terms.currentHash` realm attribute or startup synchronization.
 
-Once the user accepts the built-in Terms page, the event listener calculates the same live hash and records it in `terms.acceptedHash`. The built-in `terms_and_conditions` timestamp remains managed by Keycloak. If no localized `termsText` override exists, hash enforcement is skipped.
+Once the user accepts the built-in Terms page, the event listener records both the resolved hash in `terms.acceptedHash` and the effective language in `terms.acceptedLanguage`. The built-in `terms_and_conditions` timestamp remains managed by Keycloak. If the effective `termsText` cannot be resolved, hash enforcement is skipped.
+
+The required action has a per-realm **Require acceptance when language changes** configuration, disabled by default. When disabled, moving to another language requires acceptance only if its resolved Terms text has a different hash. When enabled, changing language requires acceptance even when both languages resolve to identical Terms text.
 
 ## Test the API
 
