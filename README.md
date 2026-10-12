@@ -53,6 +53,16 @@ At each login the trigger calculates a deterministic SHA-256 hash from every loc
 
 Once the user accepts the built-in Terms page, the event listener calculates the same live hash and records it in `terms.acceptedHash`. The built-in `terms_and_conditions` timestamp remains managed by Keycloak. If no localized `termsText` override exists, hash enforcement is skipped.
 
+### Record acceptance during registration
+
+To store the hash when a user accepts Terms on the registration form, copy the built-in **Registration** flow and add these required executions to its registration form subflow in this order:
+
+1. **Registration User Profile Creation**
+2. **Terms and conditions**
+3. **Record Terms acceptance hash** (provider ID `registration-terms-hash`)
+
+Bind the copied flow as the realm's registration flow. The hash recorder does not render or validate a checkbox; it records `terms.acceptedHash` only when Keycloak's built-in `terms_and_conditions` acceptance attribute is present on the newly created user. If no localized `termsText` exists, it leaves the hash unset.
+
 ## Test the API
 
 Create a test realm in the Admin Console, for example `acme`. Obtain an admin access token (replace credentials if you changed them):
